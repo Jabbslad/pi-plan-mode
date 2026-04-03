@@ -1,0 +1,21 @@
+{
+  "name": "pi-plan-mode",
+  "version": "0.1.0",
+  "type": "module",
+  "keywords": ["pi-package"],
+  "description": "Plan mode extension for pi — explore and design before implementing",
+  "scripts": {
+    "test": "node --test --import tsx tests/*.test.ts"
+  },
+  "pi": {
+    "extensions": ["./extensions"]
+  },
+  "devDependencies": {
+    "tsx": "^4.0.0"
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "*",
+    "@mariozechner/pi-ai": "*",
+    "@mariozechner/pi-tui": "*"
+  }
+}
