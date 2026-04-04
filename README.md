@@ -12,12 +12,9 @@ A plan mode extension for [pi](https://github.com/badlogic/pi-mono) that forces 
 ## How It Works
 
 ```
-┌─────────┐     ┌───────────────────────────────┐     ┌──────────┐     ┌────────────┐
-│         │     │    Iterative Planning Loop    │     │          │     │            │
-│  /plan  │ ──> │                               │ ──> │ Approve  │ ──> │ Implement  │
-│         │     │ explore ─> update plan ─> ask │     │ or reject│     │ full tools │
-│         │     │     └───────────────────┘      │     │          │     │            │
-└─────────┘     └───────────────────────────────┘     └──────────┘     └────────────┘
+/plan ──> explore ──> update plan ──> ask user ──> approve ──> implement
+              ^                          │
+              └──────────────────────────┘
 ```
 
 The agent pair-plans with you iteratively:
