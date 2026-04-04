@@ -512,6 +512,7 @@ IMPORTANT RULES:
 - If the user asks a question, answer it directly using read-only tools. Do NOT call ExitPlanMode just to answer a question.
 - You can have normal conversations and answer questions while in plan mode
 - Only call ExitPlanMode when your plan is complete and ready for user review
+- If you need to clarify requirements or choose between approaches, use AskUserQuestion (if available) — do NOT use it for plan approval
 
 WORKFLOW:
 1. Explore the codebase with read-only tools to understand the architecture
