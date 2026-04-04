@@ -160,21 +160,36 @@ export default function planModeExtension(pi: ExtensionAPI): void {
 				return;
 			}
 
-			// /plan open — open plan file in external editor
+			// /plan open — open plan file in $EDITOR or fallback to TUI editor
 			if (trimmed === "open") {
 				if (!state.planFilePath) {
 					ctx.ui.notify("No plan file yet. Enter plan mode first.", "warning");
 					return;
 				}
 				const content = readPlan(state.planSlug!, getPlansDir());
-				if (content) {
+				if (!content) {
+					ctx.ui.notify("Plan file is empty.", "info");
+					return;
+				}
+
+				// Try $EDITOR/$VISUAL for full-screen editing experience
+				const externalEditor = process.env.EDITOR || process.env.VISUAL;
+				if (externalEditor) {
+					ensurePlansDir(getPlansDir());
+					const { execSync } = await import("node:child_process");
+					try {
+						execSync(`${externalEditor} ${state.planFilePath}`, { stdio: "inherit" });
+						ctx.ui.notify("Plan file saved.", "success");
+					} catch {
+						ctx.ui.notify("Editor closed or failed to open.", "warning");
+					}
+				} else {
+					// Fallback to TUI editor
 					const edited = await ctx.ui.editor("Edit Plan:", content);
 					if (edited !== undefined && edited !== content) {
 						writePlan(state.planSlug!, edited, getPlansDir());
 						ctx.ui.notify("Plan updated.", "success");
 					}
-				} else {
-					ctx.ui.notify("Plan file is empty.", "info");
 				}
 				return;
 			}
@@ -232,6 +247,8 @@ export default function planModeExtension(pi: ExtensionAPI): void {
 		promptGuidelines: [
 			"For non-trivial tasks, consider entering plan mode first to explore and design before implementing.",
 			"In plan mode, explore the codebase, understand the architecture, then write a plan and call ExitPlanMode.",
+			"Do NOT call EnterPlanMode if you are already in plan mode. If the system prompt says you are in plan mode, you are already there.",
+			"If the user asks a question during plan mode, answer it directly — do not call EnterPlanMode or ExitPlanMode.",
 		],
 		parameters: Type.Object({}),
 
@@ -304,7 +321,8 @@ IMPORTANT:
 		label: "Exit Plan Mode",
 		description:
 			"Present the plan for user approval and exit plan mode. " +
-			"The user will review the plan and can approve, edit, or reject it.",
+			"The user will review the plan and can approve or reject it. " +
+			"Do NOT use this tool just to answer a user question — only call it when the plan is ready for review.",
 		promptSnippet: "Present plan for approval and exit plan mode",
 		parameters: Type.Object({}),
 
@@ -345,15 +363,17 @@ IMPORTANT:
 				};
 			}
 
-			// Show plan and ask for approval
-			const choice = await ctx.ui.select("Ready to implement this plan?", [
-				"Yes, approve and implement",
-				"Yes, but let me edit first",
-				"No, keep planning",
-			]);
+			// Show plan content in terminal for easy reading
+			ctx.ui.notify(`\n📋 Plan (${state.planSlug}):\n\n${planContent}\n\n📁 Plan file: ${ensurePlanFilePath()}\n💡 Use /plan open to edit the plan file directly`, "info");
+
+			// Simple approve/reject
+			const approved = await ctx.ui.confirm(
+				"Approve this plan?",
+				"Yes to implement, No to keep refining. Use /plan open to edit the file directly.",
+			);
 
 			// Handle Escape / dialog dismissal
-			if (choice === undefined) {
+			if (approved === undefined) {
 				return {
 					content: [
 						{
@@ -365,28 +385,9 @@ IMPORTANT:
 				};
 			}
 
-			if (choice === "Yes, approve and implement") {
-				deactivatePlanMode(ctx);
-				pi.setSessionName(extractSessionName(planContent));
-
-				return {
-					content: [
-						{
-							type: "text",
-							text: `Plan approved! Implement the following plan:\n\n${planContent}\n\nPlan file for reference: ${state.planFilePath}`,
-						},
-					],
-					details: { approved: true, planContent, planFilePath: state.planFilePath },
-				};
-			}
-
-			if (choice === "Yes, but let me edit first") {
-				const edited = await ctx.ui.editor("Edit your plan:", planContent);
-				if (edited !== undefined && edited !== planContent) {
-					writePlan(state.planSlug!, edited, getPlansDir());
-				}
-
-				const finalContent = edited ?? planContent;
+			if (approved) {
+				// Re-read the plan in case user edited it via /plan open between notify and confirm
+				const finalContent = readPlan(state.planSlug!, getPlansDir()) ?? planContent;
 				deactivatePlanMode(ctx);
 				pi.setSessionName(extractSessionName(finalContent));
 
@@ -394,26 +395,23 @@ IMPORTANT:
 					content: [
 						{
 							type: "text",
-							text: `Plan approved (edited)! Implement the following plan:\n\n${finalContent}\n\nPlan file for reference: ${state.planFilePath}`,
+							text: `Plan approved! Implement the following plan:\n\n${finalContent}\n\nPlan file for reference: ${state.planFilePath}`,
 						},
 					],
-					details: { approved: true, edited: true, planContent: finalContent, planFilePath: state.planFilePath },
+					details: { approved: true, planContent: finalContent, planFilePath: state.planFilePath },
 				};
 			}
 
-			// "No, keep planning" or user dismissed
-			let feedback: string | undefined;
-			if (ctx.hasUI) {
-				feedback = await ctx.ui.input("What should be changed?", "Describe changes to the plan...");
-			}
+			// Rejected — ask for feedback
+			const feedback = await ctx.ui.input("What should be changed?", "Describe changes (or leave empty)...");
 
 			return {
 				content: [
 					{
 						type: "text",
 						text: feedback
-							? `Plan not approved. User feedback: ${feedback}\n\nRevise the plan in ${ensurePlanFilePath()} and call ExitPlanMode again.`
-							: `Plan not approved. Continue refining the plan in ${ensurePlanFilePath()} and call ExitPlanMode when ready.`,
+							? `Plan not approved. User feedback: ${feedback}\n\nRevise the plan in ${ensurePlanFilePath()} and call ExitPlanMode again.\nThe user can also edit the plan directly with /plan open.`
+							: `Plan not approved. Continue refining the plan in ${ensurePlanFilePath()} and call ExitPlanMode when ready.\nThe user can also edit the plan directly with /plan open.`,
 					},
 				],
 				details: { approved: false, feedback },
@@ -509,11 +507,17 @@ RESTRICTIONS:
 - All other file writes/edits are blocked
 - Bash is restricted to read-only commands (no git commit, npm install, rm, etc.)
 
+IMPORTANT RULES:
+- Do NOT call EnterPlanMode — you are ALREADY in plan mode
+- If the user asks a question, answer it directly using read-only tools. Do NOT call ExitPlanMode just to answer a question.
+- You can have normal conversations and answer questions while in plan mode
+- Only call ExitPlanMode when your plan is complete and ready for user review
+
 WORKFLOW:
 1. Explore the codebase with read-only tools to understand the architecture
 2. Design your implementation approach
 3. Write a clear, numbered plan to your plan file: ${planPath}
-4. Call ExitPlanMode to present the plan for user approval
+4. When the plan is ready, call ExitPlanMode to present it for user approval
 
 DO NOT attempt implementation until your plan is approved.
 Write your plan as markdown with numbered steps, each describing a specific change.`,
