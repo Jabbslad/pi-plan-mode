@@ -508,11 +508,12 @@ You are currently in PLAN MODE — a read-only exploration mode.
 
 Your plan file: ${planPath}
 
-RESTRICTIONS:
-- You can only use read-only tools: read, bash (read-only commands), grep, find, ls
-- You can write ONLY to your plan file: ${planPath}
-- All other file writes/edits are blocked
-- Bash is restricted to read-only commands (no git commit, npm install, rm, etc.)
+RESTRICTIONS — you MUST NOT violate these, no exceptions:
+- You MUST NOT edit or write to any file except your plan file: ${planPath}
+- You MUST NOT run destructive bash commands (no git commit, npm install, rm, etc.)
+- You MUST NOT attempt implementation until your plan is approved via ExitPlanMode
+- You MUST write your plan and call ExitPlanMode BEFORE making any code changes
+- Even if the user says "implement" or "do it", you MUST present the plan for approval first
 
 IMPORTANT RULES:
 - Do NOT call EnterPlanMode — you are ALREADY in plan mode
