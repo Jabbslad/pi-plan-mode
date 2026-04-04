@@ -111,7 +111,7 @@ export default function planModeExtension(pi: ExtensionAPI): void {
 		if (state.active) {
 			ctx.ui.setStatus("plan-mode", ctx.ui.theme.fg("warning", "⏸  plan mode"));
 			ctx.ui.setWidget("plan-mode", [
-				ctx.ui.theme.fg("warning", "⏸ Plan Mode") +
+				ctx.ui.theme.fg("warning", "⏸  Plan Mode") +
 					ctx.ui.theme.fg("muted", ` — ${state.planFilePath ?? "no plan file"}`),
 			]);
 		} else {
