@@ -11,11 +11,11 @@ This is **pi-plan-mode** — a plan mode extension for pi agent. It provides a s
 pi-plan-mode/
 ├── extensions/
 │   └── plan-mode/
-│       └── index.ts          # Extension entry point
+│       └── index.ts          # Extension entry point (tools, commands, events)
 ├── lib/
-│   └── plans.ts              # Plan file management (slug, read/write)
+│   └── plans.ts              # Plan file management (slug, I/O, safety, state)
 ├── tests/
-│   └── plans.test.ts         # Unit tests for plan utilities
+│   └── plans.test.ts         # Unit tests for plan utilities (145 tests)
 ├── PRD.md                    # Product requirements document
 ├── package.json              # Pi package manifest
 └── AGENTS.md                 # This file
