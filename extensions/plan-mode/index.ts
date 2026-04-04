@@ -39,7 +39,7 @@ import {
  * Tools available in plan mode.
  * Includes read-only tools + write/edit (gated by plan-file check in tool_call) + plan tools.
  */
-const PLAN_MODE_TOOLS = ["read", "bash", "grep", "find", "ls", "write", "edit", "EnterPlanMode", "ExitPlanMode"];
+const PLAN_MODE_TOOLS = ["read", "bash", "grep", "find", "ls", "write", "edit", "EnterPlanMode", "ExitPlanMode", "AskUserQuestion"];
 
 /** Write tools that need plan-file path validation */
 const WRITE_TOOLS = ["write", "edit"];
