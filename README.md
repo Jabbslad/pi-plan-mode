@@ -12,11 +12,11 @@ A plan mode extension for [pi](https://github.com/badlogic/pi-mono) that forces 
 ## How It Works
 
 ```
-┌─────────┐     ┌───────────┐     ┌─────────┐     ┌───────────┐     ┌─────────────┐
-│  Enter   │ ──▶ │  Explore   │ ──▶ │  Plan   │ ──▶ │  Approve  │ ──▶ │  Implement  │
-│          │     │  (read-    │     │  (write │     │  (review  │     │  (full tool │
-│  /plan   │     │   only)    │     │  .md)   │     │  & edit)  │     │   access)   │
-└─────────┘     └───────────┘     └─────────┘     └───────────┘     └─────────────┘
+┌─────────┐     ┌──────────┐     ┌─────────┐     ┌──────────┐     ┌────────────┐
+│  Enter  │ ──> │ Explore  │ ──> │  Plan   │ ──> │ Approve  │ ──> │ Implement  │
+│         │     │ (read-   │     │ (write  │     │ (review  │     │ (full tool │
+│  /plan  │     │  only)   │     │  .md)   │     │  & edit) │     │  access)   │
+└─────────┘     └──────────┘     └─────────┘     └──────────┘     └────────────┘
 ```
 
 ## Quick Start
