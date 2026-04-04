@@ -36,19 +36,31 @@ import {
 // ── Constants ────────────────────────────────────────────────────────
 
 /**
- * Tools available in plan mode.
- * Includes read-only tools + write/edit (gated by plan-file check in tool_call) + plan tools.
+ * Tools that require per-call gating in plan mode.
+ * write/edit are allowed only for the plan file.
+ * bash is allowed only for safe (read-only) commands.
+ * Everything else passes through — enforcement is in the tool_call handler.
  */
-const PLAN_MODE_TOOLS = ["read", "bash", "grep", "find", "ls", "write", "edit", "EnterPlanMode", "ExitPlanMode", "AskUserQuestion"];
+const WRITE_TOOLS = new Set(["write", "edit"]);
 
-/** Write tools that need plan-file path validation */
-const WRITE_TOOLS = ["write", "edit"];
+/** Tools that are always allowed in plan mode without any checks */
+const ALWAYS_ALLOWED = new Set(["read", "bash", "grep", "find", "ls", "EnterPlanMode", "ExitPlanMode"]);
+
+/**
+ * Tools explicitly blocked in plan mode.
+ * All other tools (including unknown/future tools) are allowed through.
+ * This is a safety blacklist — if a new destructive tool is added, add it here.
+ */
+const BLOCKED_IN_PLAN_MODE = new Set<string>([
+	// Currently empty — write/edit and bash are gated per-call, not blocked outright.
+	// Add tool names here to hard-block them in plan mode.
+]);
 
 // ── Extension ────────────────────────────────────────────────────────
 
 export default function planModeExtension(pi: ExtensionAPI): void {
 	let state: PlanModeState = createInitialState();
-	let savedActiveTools: string[] | null = null;
+
 
 	// ── Helpers ──────────────────────────────────────────────────────
 
@@ -72,35 +84,30 @@ export default function planModeExtension(pi: ExtensionAPI): void {
 		return state.planFilePath!;
 	}
 
-	/** Activate plan mode: save current tools and restrict to read-only */
+	/** Activate plan mode: all tools stay visible, enforcement is per-call in tool_call handler */
 	function activatePlanMode(ctx: ExtensionContext): void {
 		if (state.active) return;
 
-		// Save current tool set for restoration
-		savedActiveTools = pi.getActiveTools().map((t) => t.name);
 		state.active = true;
 
 		// Ensure plan file infrastructure
 		ensurePlanSlug();
 		ensurePlansDir(getPlansDir());
 
-		// Restrict to plan mode tools
-		pi.setActiveTools(PLAN_MODE_TOOLS);
+		// No setActiveTools() call — all tools remain visible.
+		// The tool_call handler enforces read-only restrictions per-call.
 
 		updateUI(ctx);
 		persistState();
 	}
 
-	/** Deactivate plan mode: restore all tools */
+	/** Deactivate plan mode */
 	function deactivatePlanMode(ctx: ExtensionContext): void {
 		if (!state.active) return;
 
 		state.active = false;
-		savedActiveTools = null;
 
-		// Always restore ALL tools — savedActiveTools can be stale if other
-		// extensions registered tools after we entered plan mode.
-		pi.setActiveTools(pi.getAllTools().map((t) => t.name));
+		// No tool restoration needed — we never restricted the tool list.
 
 		updateUI(ctx);
 		persistState();
@@ -124,7 +131,6 @@ export default function planModeExtension(pi: ExtensionAPI): void {
 			active: state.active,
 			planSlug: state.planSlug,
 			planFilePath: state.planFilePath,
-			savedActiveTools: savedActiveTools,
 		});
 	}
 
@@ -424,43 +430,44 @@ IMPORTANT:
 	pi.on("tool_call", async (event, _ctx) => {
 		if (!state.active) return;
 
-		// Allow ExitPlanMode and EnterPlanMode always
-		if (event.toolName === "ExitPlanMode" || event.toolName === "EnterPlanMode") return;
-
-		// Allow write/edit ONLY to the plan file
-		if (isToolCallEventType("write", event) || isToolCallEventType("edit", event)) {
-			const path = event.input.path;
-			if (path && checkIsPlanFile(path)) {
-				return; // Allow writing to plan file
+		// Always allow known safe tools
+		if (ALWAYS_ALLOWED.has(event.toolName)) {
+			// Bash needs per-call command check even though it's "allowed"
+			if (isToolCallEventType("bash", event)) {
+				const command = event.input.command;
+				if (!isSafeCommand(command)) {
+					return {
+						block: true,
+						reason: `Plan mode: destructive bash command blocked. Only read-only commands are allowed.\nCommand: ${command}\nUse /plan or Ctrl+Alt+P to exit plan mode first.`,
+					};
+				}
 			}
+			return;
+		}
+
+		// Hard-block explicitly blacklisted tools
+		if (BLOCKED_IN_PLAN_MODE.has(event.toolName)) {
 			return {
 				block: true,
-				reason: `Plan mode: cannot ${event.toolName} to "${path}". Only the plan file can be written: ${state.planFilePath}`,
+				reason: `Plan mode: tool "${event.toolName}" is blocked. Use /plan off or Ctrl+Alt+P to exit plan mode first.`,
 			};
 		}
 
-		// Restrict bash to read-only commands
-		if (isToolCallEventType("bash", event)) {
-			const command = event.input.command;
-			if (!isSafeCommand(command)) {
+		// Gate write/edit to plan file only
+		if (WRITE_TOOLS.has(event.toolName)) {
+			if (isToolCallEventType("write", event) || isToolCallEventType("edit", event)) {
+				const path = event.input.path;
+				if (path && checkIsPlanFile(path)) {
+					return; // Allow writing to plan file
+				}
 				return {
 					block: true,
-					reason: `Plan mode: destructive bash command blocked. Only read-only commands are allowed.\nCommand: ${command}\nUse /plan or Ctrl+Alt+P to exit plan mode first.`,
+					reason: `Plan mode: cannot ${event.toolName} to "${path}". Only the plan file can be written: ${state.planFilePath}`,
 				};
 			}
 		}
 
-		// Allow read-only tools
-		const readOnlyTools = ["read", "grep", "find", "ls"];
-		if (readOnlyTools.includes(event.toolName)) return;
-
-		// Block everything else not in PLAN_MODE_TOOLS
-		if (!PLAN_MODE_TOOLS.includes(event.toolName)) {
-			return {
-				block: true,
-				reason: `Plan mode: tool "${event.toolName}" is not available. Only read-only tools and writing to the plan file are allowed.`,
-			};
-		}
+		// Everything else (AskUserQuestion, future read-only tools, etc.) — allow through
 	});
 
 	// ── Filter stale plan-mode context messages ─────────────────────
@@ -550,7 +557,6 @@ Write your plan as markdown with numbered steps, each describing a specific chan
 
 	pi.on("session_start", async (_event, ctx) => {
 		state = createInitialState();
-		savedActiveTools = null;
 
 		// Check --plan flag
 		if (pi.getFlag("plan") === true) {
@@ -569,7 +575,7 @@ Write your plan as markdown with numbered steps, each describing a specific chan
 			state.planFilePath = getPlanFilePath(recoveredSlug, getPlansDir());
 		}
 
-		// Check if plan mode was active and restore full state
+		// Check if plan mode was active and restore it
 		for (let i = entries.length - 1; i >= 0; i--) {
 			const entry = entries[i] as { type: string; customType?: string; data?: Record<string, unknown> };
 			if (entry.type === "custom" && entry.customType === "plan-mode-state" && entry.data) {
@@ -577,11 +583,7 @@ Write your plan as markdown with numbered steps, each describing a specific chan
 					state.active = true;
 					state.planSlug = (entry.data.planSlug as string) ?? state.planSlug;
 					state.planFilePath = (entry.data.planFilePath as string) ?? state.planFilePath;
-					// Restore saved tools for later deactivation
-					if (Array.isArray(entry.data.savedActiveTools)) {
-						savedActiveTools = entry.data.savedActiveTools as string[];
-					}
-					pi.setActiveTools(PLAN_MODE_TOOLS);
+					// No setActiveTools needed — tool_call handler enforces restrictions
 				}
 				break;
 			}
