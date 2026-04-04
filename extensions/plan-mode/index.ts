@@ -494,9 +494,23 @@ IMPORTANT:
 	// ── Inject plan mode instructions into system prompt ────────────
 
 	pi.on("before_agent_start", async (event, _ctx) => {
-		// When plan mode is off, don't modify anything — the plan content
-		// is already in the ExitPlanMode tool result in the conversation.
-		if (!state.active) return;
+		// When plan mode is off but a plan file exists, inject plan content
+		// as a reference so the model has it after compaction.
+		if (!state.active) {
+			if (state.planSlug && state.planFilePath) {
+				const planContent = readPlan(state.planSlug, getPlansDir());
+				if (planContent && planContent.trim().length > 0) {
+					return {
+						message: {
+							customType: "plan-file-reference",
+							content: `[APPROVED PLAN]\nA plan was approved from a previous planning session.\nPlan file: ${state.planFilePath}\n\n${planContent}\n\nIf this plan is relevant to your current work and not yet complete, continue implementing it.`,
+							display: false,
+						},
+					};
+				}
+			}
+			return;
+		}
 
 		const planPath = ensurePlanFilePath();
 
