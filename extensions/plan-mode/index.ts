@@ -91,20 +91,16 @@ export default function planModeExtension(pi: ExtensionAPI): void {
 		persistState();
 	}
 
-	/** Deactivate plan mode: restore previous tools */
+	/** Deactivate plan mode: restore all tools */
 	function deactivatePlanMode(ctx: ExtensionContext): void {
 		if (!state.active) return;
 
 		state.active = false;
+		savedActiveTools = null;
 
-		// Restore previous tool set
-		if (savedActiveTools) {
-			pi.setActiveTools(savedActiveTools);
-			savedActiveTools = null;
-		} else {
-			// Fallback: restore all tools
-			pi.setActiveTools(pi.getAllTools().map((t) => t.name));
-		}
+		// Always restore ALL tools — savedActiveTools can be stale if other
+		// extensions registered tools after we entered plan mode.
+		pi.setActiveTools(pi.getAllTools().map((t) => t.name));
 
 		updateUI(ctx);
 		persistState();
@@ -463,13 +459,20 @@ IMPORTANT:
 	// ── Filter stale plan-mode context messages ─────────────────────
 
 	pi.on("context", async (event) => {
+		// Only filter when plan mode is off and there are messages to filter
 		if (state.active) return;
+
+		const hasStaleMessages = event.messages.some((m) => {
+			const msg = m as Record<string, unknown>;
+			return msg.customType === "plan-mode-context";
+		});
+
+		if (!hasStaleMessages) return;
 
 		return {
 			messages: event.messages.filter((m) => {
 				const msg = m as Record<string, unknown>;
-				if (msg.customType === "plan-mode-context") return false;
-				return true;
+				return msg.customType !== "plan-mode-context";
 			}),
 		};
 	});
@@ -477,20 +480,9 @@ IMPORTANT:
 	// ── Inject plan mode instructions into system prompt ────────────
 
 	pi.on("before_agent_start", async (event, _ctx) => {
-		if (!state.active) {
-			// If we just exited plan mode and have a plan file, reference it
-			if (state.planSlug) {
-				const content = readPlan(state.planSlug, getPlansDir());
-				if (content) {
-					return {
-						systemPrompt:
-							event.systemPrompt +
-							`\n\nYou have an approved plan file at: ${state.planFilePath}\nRefer to it for implementation guidance.`,
-					};
-				}
-			}
-			return;
-		}
+		// When plan mode is off, don't modify anything — the plan content
+		// is already in the ExitPlanMode tool result in the conversation.
+		if (!state.active) return;
 
 		const planPath = ensurePlanFilePath();
 
