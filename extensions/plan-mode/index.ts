@@ -109,13 +109,11 @@ export default function planModeExtension(pi: ExtensionAPI): void {
 	/** Update footer status and widget */
 	function updateUI(ctx: ExtensionContext): void {
 		if (state.active) {
-			ctx.ui.setStatus("plan-mode", ctx.ui.theme.fg("warning", "⏸  plan mode"));
 			ctx.ui.setWidget("plan-mode", [
 				ctx.ui.theme.fg("warning", "⏸  Plan Mode") +
 					ctx.ui.theme.fg("muted", ` — ${state.planFilePath ?? "no plan file"}`),
 			]);
 		} else {
-			ctx.ui.setStatus("plan-mode", undefined);
 			ctx.ui.setWidget("plan-mode", undefined);
 		}
 	}
@@ -150,6 +148,17 @@ export default function planModeExtension(pi: ExtensionAPI): void {
 		description: "Toggle plan mode or show current plan",
 		handler: async (args, ctx) => {
 			const trimmed = args?.trim();
+
+			// /plan off — cancel plan mode without approval
+			if (trimmed === "off") {
+				if (!state.active) {
+					ctx.ui.notify("Not in plan mode.", "warning");
+					return;
+				}
+				deactivatePlanMode(ctx);
+				ctx.ui.notify("Plan mode cancelled.", "info");
+				return;
+			}
 
 			// /plan open — open plan file in external editor
 			if (trimmed === "open") {
@@ -529,7 +538,6 @@ Write your plan as markdown with numbered steps, each describing a specific chan
 	// ── Cleanup on session shutdown ─────────────────────────────────
 
 	pi.on("session_shutdown", async (_event, ctx) => {
-		ctx.ui.setStatus("plan-mode", undefined);
 		ctx.ui.setWidget("plan-mode", undefined);
 	});
 

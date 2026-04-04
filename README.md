@@ -37,8 +37,9 @@ The agent enters read-only mode, explores your codebase, writes a plan, and asks
 
 | Command | Description |
 |---------|-------------|
-| `/plan` | Toggle plan mode on/off |
+| `/plan` | Enter plan mode (or show current plan if active) |
 | `/plan <task>` | Enter plan mode with a task description |
+| `/plan off` | Cancel plan mode without approval |
 | `/plan open` | Edit the current plan in your editor |
 | `Ctrl+Alt+P` | Toggle plan mode (keyboard shortcut) |
 
