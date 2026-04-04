@@ -13,10 +13,10 @@ A plan mode extension for [pi](https://github.com/badlogic/pi-mono) that forces 
 
 ```
 ┌─────────┐     ┌───────────────────────────────┐     ┌──────────┐     ┌────────────┐
-│  Enter  │ ──> │    Iterative Planning Loop    │ ──> │ Approve  │ ──> │ Implement  │
-│         │     │                               │     │          │     │            │
-│  /plan  │     │ explore ─> update plan ─> ask │     │ approve  │     │ full tool  │
-│         │     │     └───────────────────┘      │     │ or reject│     │ access     │
+│         │     │    Iterative Planning Loop    │     │          │     │            │
+│  /plan  │ ──> │                               │ ──> │ Approve  │ ──> │ Implement  │
+│         │     │ explore ─> update plan ─> ask │     │ or reject│     │ full tools │
+│         │     │     └───────────────────┘      │     │          │     │            │
 └─────────┘     └───────────────────────────────┘     └──────────┘     └────────────┘
 ```
 
