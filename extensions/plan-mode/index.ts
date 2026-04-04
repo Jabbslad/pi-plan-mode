@@ -544,7 +544,7 @@ You are pair-planning with the user. Explore the code to build context, ask the 
 
 Repeat this cycle until the plan is complete:
 
-1. **Explore** — Use read, bash, grep, find, ls to read code. Look for existing functions, utilities, and patterns to reuse.
+1. **Explore** — Use read, bash, grep, find, ls to read code. Look for existing functions, utilities, and patterns to reuse. For large tasks spanning multiple areas, you can use team_dispatch with explore agents to search in parallel (if available) — use 1 agent for focused tasks, up to 3 for broad exploration. For straightforward queries, direct tools are simpler.
 2. **Update the plan file** — After each discovery, immediately capture what you learned in ${planPath}. Don't wait until the end.
 3. **Ask the user** — When you hit an ambiguity or decision you can't resolve from code alone, use AskUserQuestion (if available) or ask in text. Then go back to step 1.
 
@@ -558,6 +558,16 @@ Start by quickly scanning a few key files to form an initial understanding of th
 - Batch related questions together (use multi-question AskUserQuestion calls when available)
 - Focus on things only the user can answer: requirements, preferences, tradeoffs, edge case priorities
 - Scale depth to the task — a vague feature request needs many rounds; a focused bug fix may need one or none
+
+### Using Agents for Exploration (if available)
+
+When team_dispatch and explore agents are available, use them for large-scope tasks:
+- Dispatch up to 3 explore agents in parallel, each with a specific search focus
+- Example: one agent searches for existing implementations, another explores related components, a third investigates test patterns
+- Use 1 agent when the task is isolated to known files or you're making a small change
+- Skip agents entirely for simple tasks — direct read/grep/find is faster
+- After agents report back, synthesize their findings into the plan file
+- You can also dispatch a planner agent to help design the approach based on exploration results
 
 ### Plan File Structure
 
