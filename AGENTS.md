@@ -24,7 +24,7 @@ pi-plan-mode/
 ### Key Concepts
 - **Plan Mode**: A read-only exploration mode where the agent can only read files, run safe bash commands, and write to a plan file
 - **Plan File**: A markdown file at `~/.config/pi/plans/{slug}.md` where the agent writes its plan
-- **Enter Plan Mode**: Via `/plan` command, `Ctrl+Alt+P` shortcut, `--plan` CLI flag, or `EnterPlanMode` tool (agent-initiated, user-approved)
+- **Enter Plan Mode**: Via `/plan` command, `Ctrl+Alt+P` shortcut, or `EnterPlanMode` tool (agent-initiated, user-approved)
 - **Exit Plan Mode**: Agent calls `ExitPlanMode` → plan shown in terminal → user approves or rejects → optional feedback on rejection
 - **Blacklist Enforcement**: All tools stay visible; destructive operations are blocked per-call by the `tool_call` handler (not by hiding tools)
 
@@ -48,7 +48,6 @@ This extension uses pi's extension API:
 - `pi.registerTool()` — `EnterPlanMode` and `ExitPlanMode` tools
 - `pi.registerCommand()` — `/plan` command (with subcommands: `off`, `open`)
 - `pi.registerShortcut()` — `Ctrl+Alt+P` toggle
-- `pi.registerFlag()` — `--plan` CLI flag
 - `pi.on("tool_call")` — per-call enforcement of plan mode restrictions
 - `pi.on("before_agent_start")` — inject plan mode instructions into system prompt + context message
 - `pi.on("context")` — filter stale plan-mode context messages when not in plan mode

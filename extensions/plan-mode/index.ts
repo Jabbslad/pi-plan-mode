@@ -169,14 +169,6 @@ export default function planModeExtension(pi: ExtensionAPI): void {
 		return `Plan mode status\n\nActive: ${state.active ? "yes" : "no"}\nPlan slug: ${state.planSlug ?? "none"}\nPlan file: ${state.planFilePath ?? "none"}\nPlan content present: ${hasPlanContent ? "yes" : "no"}\nApproved plan available for /plan fresh: ${hasApprovedPlan ? "yes" : "no"}`;
 	}
 
-	// ── Register CLI flag ───────────────────────────────────────────
-
-	pi.registerFlag("plan", {
-		description: "Start in plan mode (read-only exploration with plan file)",
-		type: "boolean",
-		default: false,
-	});
-
 	// ── Register /plan command ──────────────────────────────────────
 
 	pi.registerCommand("plan", {
@@ -785,12 +777,6 @@ Do NOT attempt implementation until your plan is approved.`,
 
 	pi.on("session_start", async (_event, ctx) => {
 		state = createInitialState();
-
-		// Check --plan flag
-		if (pi.getFlag("plan") === true) {
-			activatePlanMode(ctx);
-			return;
-		}
 
 		// Recover state from session entries
 		const entries = ctx.sessionManager.getEntries();

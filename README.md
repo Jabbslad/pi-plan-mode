@@ -59,7 +59,6 @@ Then start plan mode with a task:
 | `/plan clear` | Clear the current plan file contents |
 | `/plan resume` | Re-enter plan mode using the existing plan file |
 | `Ctrl+Alt+P` | Toggle plan mode |
-| `--plan` | Start a session in plan mode from the CLI |
 
 The agent can also request plan mode for more complex work. You still have to approve that transition.
 
