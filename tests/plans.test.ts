@@ -558,6 +558,8 @@ describe("createInitialState", () => {
 		assert.equal(state.active, false);
 		assert.equal(state.planSlug, null);
 		assert.equal(state.planFilePath, null);
+		assert.equal(state.lastTransition, null);
+		assert.equal(state.lastApprovedPlanFilePath, null);
 	});
 
 	it("creates independent instances", () => {

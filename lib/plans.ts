@@ -404,6 +404,10 @@ export interface PlanModeState {
 	planSlug: string | null;
 	/** Path to the plan file */
 	planFilePath: string | null;
+	/** Most recent plan-mode lifecycle transition */
+	lastTransition: "entered" | "approved" | "cancelled" | null;
+	/** Path to the most recently approved plan file */
+	lastApprovedPlanFilePath: string | null;
 }
 
 /**
@@ -432,6 +436,8 @@ export function createInitialState(): PlanModeState {
 		active: false,
 		planSlug: null,
 		planFilePath: null,
+		lastTransition: null,
+		lastApprovedPlanFilePath: null,
 	};
 }
 

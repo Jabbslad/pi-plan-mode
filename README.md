@@ -47,6 +47,7 @@ Then tell the agent what you want:
 | `/plan <task>` | Enter plan mode with a task description |
 | `/plan off` | Cancel plan mode without approval |
 | `/plan open` | Edit the plan file in `$EDITOR` (or TUI fallback) |
+| `/plan fresh` | Start a new session seeded from the approved plan |
 | `Ctrl+Alt+P` | Toggle plan mode |
 | `--plan` | CLI flag to start a session in plan mode |
 
@@ -60,6 +61,9 @@ When the agent finishes planning and calls `ExitPlanMode`:
 2. You approve or reject
 3. If rejected, you can provide feedback and the agent continues refining
 4. Use `/plan open` at any time to edit the plan file directly in your editor
+5. If approved, you can either:
+   - continue implementing in the current session, or
+   - run `/plan fresh` to start a new session with the approved plan preloaded into the editor
 
 ## Safety — Blacklist Enforcement
 
