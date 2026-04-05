@@ -1,15 +1,19 @@
-# 🗺️ pi-plan-mode
+# pi-plan-mode
 
-**Think first, code second.**
+Think first, code second.
 
 [![version](https://img.shields.io/badge/version-0.1.0-blue)](https://github.com/Jabbslad/pi-plan-mode)
 [![pi package](https://img.shields.io/badge/pi-package-8A2BE2)](https://github.com/badlogic/pi-mono)
 
-A plan mode extension for [pi](https://github.com/badlogic/pi-mono) that forces the AI to explore and design before writing a single line of code.
+`pi-plan-mode` is a [pi](https://github.com/badlogic/pi-mono) extension that adds a planning step before implementation. The agent explores the codebase, writes a plan, and waits for approval before it changes code.
 
-> 💡 **Why plan mode?** Without it, agents jump straight into implementation — often misunderstanding the codebase and making costly mistakes. Plan mode gives you a structured checkpoint: the AI reads everything first, writes a plan, and *you* approve it before any code changes happen.
+## Why use it?
 
-## How It Works
+Agents often start coding too early. That works when the task is small and the codebase is familiar. It goes badly when requirements are fuzzy or the repo has a lot of local context.
+
+Plan mode slows that down on purpose. It gives the agent a read-only planning phase, keeps notes in a plan file, and puts a clear approval step between research and implementation.
+
+## How it works
 
 ```
 /plan ──> explore ──> update plan ──> ask user ──> approve ──> implement
@@ -17,15 +21,17 @@ A plan mode extension for [pi](https://github.com/badlogic/pi-mono) that forces 
               └──────────────────────────┘
 ```
 
-The agent pair-plans with you iteratively:
-1. **Explore** — reads code to build context
-2. **Update the plan file** — writes findings incrementally (not all at the end)
-3. **Ask you questions** — clarifies requirements, preferences, and tradeoffs
-4. **Repeat** until the plan is ready, then presents it for your approval
+The usual loop looks like this:
 
-## Quick Start
+1. Explore the codebase and gather context
+2. Update the plan file as findings come in
+3. Ask questions when requirements or tradeoffs are unclear
+4. Repeat until the plan is ready for review
+5. Present the plan for approval before implementation starts
 
-Add to your pi settings:
+## Quick start
+
+Add the package to your pi settings:
 
 ```json
 {
@@ -33,63 +39,63 @@ Add to your pi settings:
 }
 ```
 
-Then tell the agent what you want:
+Then start plan mode with a task:
 
 ```
 /plan add authentication with OAuth2 support
 ```
 
-## Commands & Shortcuts
+## Commands and shortcuts
 
 | Command | Description |
 |---------|-------------|
-| `/plan` | Enter plan mode (or show current plan if active) |
+| `/plan` | Enter plan mode, or show the current plan if plan mode is already active |
 | `/plan <task>` | Enter plan mode with a task description |
 | `/plan off` | Cancel plan mode without approval |
-| `/plan open` | Edit the plan file in `$EDITOR` (or TUI fallback) |
+| `/plan open` | Edit the plan file in `$EDITOR`, or use the TUI fallback |
 | `/plan fresh` | Start a new session seeded from the approved plan |
-| `/plan status` | Show current plan-mode status and plan availability |
+| `/plan status` | Show current plan mode status and plan availability |
 | `/plan review` | Show the current plan in review format without approval |
 | `/plan clear` | Clear the current plan file contents |
 | `/plan resume` | Re-enter plan mode using the existing plan file |
 | `Ctrl+Alt+P` | Toggle plan mode |
-| `--plan` | CLI flag to start a session in plan mode |
+| `--plan` | Start a session in plan mode from the CLI |
 
-The agent can also enter plan mode on its own for complex tasks — you'll be asked to approve first.
+The agent can also request plan mode for more complex work. You still have to approve that transition.
 
-## Approval Flow
+## Approval flow
 
 When the agent finishes planning and calls `ExitPlanMode`:
 
-1. The plan is displayed in your terminal
-2. You approve or reject
-3. If rejected, you can provide feedback and the agent continues refining
-4. Use `/plan open` at any time to edit the plan file directly in your editor
-5. If approved, you can either:
-   - continue implementing in the current session, or
-   - run `/plan fresh` to start a new session with the approved plan preloaded into the editor
-6. You can also use:
-   - `/plan status` to inspect the current planning state
-   - `/plan review` to re-read the current plan without approval
-   - `/plan clear` to wipe the current plan file
-   - `/plan resume` to re-enter plan mode with the existing plan
+1. The plan is shown in the terminal
+2. You approve it or reject it
+3. If you reject it, you can leave feedback and the agent keeps refining the plan
+4. You can use `/plan open` at any time to edit the plan directly
+5. If you approve it, you can either keep working in the current session or run `/plan fresh` to start a new one with the approved plan preloaded
 
-## Safety — Blacklist Enforcement
+You can also use:
 
-All tools remain visible in plan mode. Enforcement is **per-call** — destructive operations are blocked, everything else passes through:
+- `/plan status` to inspect the current planning state
+- `/plan review` to read the current plan without approving it
+- `/plan clear` to wipe the current plan file
+- `/plan resume` to re-enter plan mode with the existing plan
+
+## Safety model
+
+All tools stay visible in plan mode. Restrictions are enforced per call.
 
 | Allowed | Blocked |
 |---------|---------|
-| ✅ Read any file, grep, find, ls | ❌ Write/edit any file (except the plan file) |
-| ✅ Read-only bash (`git status`, `cat`, `tree`…) | ❌ Destructive bash (`git push`, `rm`, `npm install`…) |
-| ✅ Write to the plan file | ❌ Command chaining (`;`, `&&`, `\|\|`) |
-| ✅ AskUserQuestion and other read-only tools | ❌ Redirects (`>`, `>>`) |
+| ✅ Read any file, grep, find, ls | ❌ Write or edit any file except the plan file |
+| ✅ Read-only bash such as `git status`, `cat`, and `tree` | ❌ Destructive bash such as `git push`, `rm`, and `npm install` |
+| ✅ Write to the plan file | ❌ Command chaining such as `;`, `&&`, and `\|\|` |
+| ✅ `AskUserQuestion` and other read-only tools | ❌ Redirects such as `>` and `>>` |
 
-New tools automatically work in plan mode — no whitelist to maintain.
+This blacklist approach means new read-only tools work in plan mode without maintaining a separate whitelist.
 
 ## Works with pi-ask-user
 
-Install the optional [pi-ask-user](https://github.com/Jabbslad/pi-ask-user) companion package for structured multiple-choice questions during planning:
+If you install the optional [pi-ask-user](https://github.com/Jabbslad/pi-ask-user) package, the agent can ask structured multiple-choice questions during planning.
 
 ```json
 {
@@ -100,21 +106,21 @@ Install the optional [pi-ask-user](https://github.com/Jabbslad/pi-ask-user) comp
 }
 ```
 
-The agent will use `AskUserQuestion` to clarify requirements and choose between approaches — with proper UI dialogs instead of freeform text.
+That gives you proper UI prompts for clarifying requirements and choosing between approaches.
 
-## Plan File Persistence
+## Plan file persistence
 
-- Plans are stored as markdown in `~/.config/pi/plans/`
-- Each session gets a unique slug (e.g. `bold-tiger.md`)
-- State persists across session restarts and compaction
-- After a plan is approved, the plan content is re-injected on every turn so it survives conversation compaction
-- Use `/plan open` to view or edit the plan at any time
+- Plans are stored as markdown files in `~/.config/pi/plans/`
+- Each session gets a unique slug such as `bold-tiger.md`
+- State survives session restarts and compaction
+- After approval, the plan content is re-injected on every turn so it survives conversation compaction
+- Use `/plan open` to view or edit the plan whenever you want
 
 ## Development
 
 ```bash
 npm install
-npm test    # 145 tests
+npm test
 ```
 
 ## License
