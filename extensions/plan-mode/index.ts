@@ -325,11 +325,6 @@ export default function planModeExtension(pi: ExtensionAPI): void {
 				return;
 			}
 
-				ctx.ui.setEditorText(prompt);
-				ctx.ui.notify("Fresh session ready. Review the seeded implementation prompt and submit when ready.", "success");
-				return;
-			}
-
 			// /plan (no args, in plan mode) — show current plan
 			if (!trimmed && state.active) {
 				const content = readPlan(state.planSlug!, getPlansDir());
