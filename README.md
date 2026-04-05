@@ -48,6 +48,10 @@ Then tell the agent what you want:
 | `/plan off` | Cancel plan mode without approval |
 | `/plan open` | Edit the plan file in `$EDITOR` (or TUI fallback) |
 | `/plan fresh` | Start a new session seeded from the approved plan |
+| `/plan status` | Show current plan-mode status and plan availability |
+| `/plan review` | Show the current plan in review format without approval |
+| `/plan clear` | Clear the current plan file contents |
+| `/plan resume` | Re-enter plan mode using the existing plan file |
 | `Ctrl+Alt+P` | Toggle plan mode |
 | `--plan` | CLI flag to start a session in plan mode |
 
@@ -64,6 +68,11 @@ When the agent finishes planning and calls `ExitPlanMode`:
 5. If approved, you can either:
    - continue implementing in the current session, or
    - run `/plan fresh` to start a new session with the approved plan preloaded into the editor
+6. You can also use:
+   - `/plan status` to inspect the current planning state
+   - `/plan review` to re-read the current plan without approval
+   - `/plan clear` to wipe the current plan file
+   - `/plan resume` to re-enter plan mode with the existing plan
 
 ## Safety — Blacklist Enforcement
 

@@ -162,6 +162,13 @@ export default function planModeExtension(pi: ExtensionAPI): void {
 		return `Implement the following approved plan.\n\nPlan file for reference: ${planPath}\n\n${planContent}`;
 	}
 
+	function buildPlanStatusText(): string {
+		const planContent = state.planSlug ? readPlan(state.planSlug, getPlansDir()) : null;
+		const hasPlanContent = Boolean(planContent && planContent.trim().length > 0);
+		const hasApprovedPlan = Boolean(state.lastApprovedPlanFilePath && hasPlanContent);
+		return `Plan mode status\n\nActive: ${state.active ? "yes" : "no"}\nPlan slug: ${state.planSlug ?? "none"}\nPlan file: ${state.planFilePath ?? "none"}\nPlan content present: ${hasPlanContent ? "yes" : "no"}\nApproved plan available for /plan fresh: ${hasApprovedPlan ? "yes" : "no"}`;
+	}
+
 	// ── Register CLI flag ───────────────────────────────────────────
 
 	pi.registerFlag("plan", {
@@ -224,6 +231,99 @@ export default function planModeExtension(pi: ExtensionAPI): void {
 
 			// /plan fresh — create a new session seeded from the approved plan
 			if (trimmed === "fresh") {
+				if (state.active) {
+					ctx.ui.notify("Finish or cancel plan mode before starting a fresh session.", "warning");
+					return;
+				}
+				if (!state.planSlug || !state.lastApprovedPlanFilePath) {
+					ctx.ui.notify("No approved plan is available yet. Approve a plan first.", "warning");
+					return;
+				}
+				const planContent = readPlan(state.planSlug, getPlansDir());
+				if (!planContent || planContent.trim().length === 0) {
+					ctx.ui.notify("The approved plan file is empty or missing.", "warning");
+					return;
+				}
+
+				const currentSessionFile = ctx.sessionManager.getSessionFile();
+				const prompt = buildFreshSessionPrompt(planContent, state.lastApprovedPlanFilePath);
+				const result = await ctx.newSession({
+					parentSession: currentSessionFile,
+				});
+				if (result.cancelled) {
+					ctx.ui.notify("Fresh session creation cancelled.", "info");
+					return;
+				}
+
+				ctx.ui.setEditorText(prompt);
+				ctx.ui.notify("Fresh session ready. Review the seeded implementation prompt and submit when ready.", "success");
+				return;
+			}
+
+			// /plan status — show plan mode state
+			if (trimmed === "status") {
+				ctx.ui.notify(buildPlanStatusText(), "info");
+				return;
+			}
+
+			// /plan review — show current plan in review format without approval
+			if (trimmed === "review") {
+				if (!state.planSlug || !state.planFilePath) {
+					ctx.ui.notify("No plan file yet. Start with /plan or /plan <task> first.", "warning");
+					return;
+				}
+				const content = readPlan(state.planSlug, getPlansDir());
+				if (!content || content.trim().length === 0) {
+					ctx.ui.notify("Plan file is empty.", "info");
+					return;
+				}
+				ctx.ui.notify(buildPlanReviewText(content, state.planFilePath), "info");
+				return;
+			}
+
+			// /plan clear — clear current plan file contents after confirmation
+			if (trimmed === "clear") {
+				if (!state.planSlug || !state.planFilePath) {
+					ctx.ui.notify("No plan file yet. Start with /plan or /plan <task> first.", "warning");
+					return;
+				}
+				const currentContent = readPlan(state.planSlug, getPlansDir());
+				if (!currentContent || currentContent.length === 0) {
+					ctx.ui.notify("Plan file is already empty.", "info");
+					return;
+				}
+				if (ctx.hasUI) {
+					const confirmed = await ctx.ui.confirm(
+						"Clear current plan?",
+						"This will erase the current plan file contents but keep the same plan session and file path.",
+					);
+					if (!confirmed) {
+						ctx.ui.notify("Plan clear cancelled.", "info");
+						return;
+					}
+				}
+				writePlan(state.planSlug, "", getPlansDir());
+				state.lastTransition = "cancelled";
+				state.lastApprovedPlanFilePath = null;
+				persistState();
+				ctx.ui.notify("Plan file cleared.", "success");
+				return;
+			}
+
+			// /plan resume — re-enter plan mode using the existing plan file
+			if (trimmed === "resume") {
+				if (state.active) {
+					ctx.ui.notify("Plan mode is already active.", "info");
+					return;
+				}
+				if (!state.planSlug || !state.planFilePath) {
+					ctx.ui.notify("No existing planning session found. Start with /plan or /plan <task> first.", "warning");
+					return;
+				}
+				activatePlanMode(ctx);
+				ctx.ui.notify(`Plan mode resumed. Plan file: ${state.planFilePath}`, "success");
+				return;
+			}
 				if (state.active) {
 					ctx.ui.notify("Finish or cancel plan mode before starting a fresh session.", "warning");
 					return;
