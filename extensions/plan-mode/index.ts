@@ -324,29 +324,6 @@ export default function planModeExtension(pi: ExtensionAPI): void {
 				ctx.ui.notify(`Plan mode resumed. Plan file: ${state.planFilePath}`, "success");
 				return;
 			}
-				if (state.active) {
-					ctx.ui.notify("Finish or cancel plan mode before starting a fresh session.", "warning");
-					return;
-				}
-				if (!state.planSlug || !state.lastApprovedPlanFilePath) {
-					ctx.ui.notify("No approved plan is available yet. Approve a plan first.", "warning");
-					return;
-				}
-				const planContent = readPlan(state.planSlug, getPlansDir());
-				if (!planContent || planContent.trim().length === 0) {
-					ctx.ui.notify("The approved plan file is empty or missing.", "warning");
-					return;
-				}
-
-				const currentSessionFile = ctx.sessionManager.getSessionFile();
-				const prompt = buildFreshSessionPrompt(planContent, state.lastApprovedPlanFilePath);
-				const result = await ctx.newSession({
-					parentSession: currentSessionFile,
-				});
-				if (result.cancelled) {
-					ctx.ui.notify("Fresh session creation cancelled.", "info");
-					return;
-				}
 
 				ctx.ui.setEditorText(prompt);
 				ctx.ui.notify("Fresh session ready. Review the seeded implementation prompt and submit when ready.", "success");
