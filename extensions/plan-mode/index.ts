@@ -134,6 +134,7 @@ export default function planModeExtension(pi: ExtensionAPI): void {
 			planFilePath: state.planFilePath,
 			lastTransition: state.lastTransition,
 			lastApprovedPlanFilePath: state.lastApprovedPlanFilePath,
+			hasExitedPlanModeInSession: state.hasExitedPlanModeInSession,
 		});
 	}
 
@@ -144,18 +145,13 @@ export default function planModeExtension(pi: ExtensionAPI): void {
 	}
 
 	function buildPlanReviewText(planContent: string, planPath: string): string {
-		return `📋 Ready to implement?\n\nReview this plan before implementation begins.\n\nPlan slug: ${state.planSlug ?? "(unsaved)"}\nPlan file: ${planPath}\n\n--- BEGIN PLAN ---\n${planContent}\n--- END PLAN ---\n\nHow to proceed:\n- Choose Yes to approve the plan and begin implementation\n- Choose No to keep planning in the current session\n- Use /plan open if you want to edit the plan directly before approving`;
+		return `📋 Plan Review\n\n${planContent}\n\nPlan file: ${planPath}`;
 	}
 
 	function buildApprovedPlanText(planContent: string, planPath: string, edited: boolean, interactive: boolean): string {
-		const approvalLabel = interactive ? "Plan approved." : "Plan approved in non-interactive mode.";
-		const reviewNote = edited
-			? "The approved version includes edits made during review.\n\n"
-			: "";
-		const freshSessionHint = interactive
-			? "If you want a clean implementation handoff, use /plan fresh to start a new session seeded from this approved plan.\n\n"
-			: "";
-		return `${approvalLabel}\nImplementation may now begin.\n\nPlan file: ${planPath}\n\n${reviewNote}${freshSessionHint}Implement the following plan:\n\n${planContent}`;
+		const editNote = edited ? " (edited during review)" : "";
+		const modeNote = interactive ? "" : " (non-interactive)";
+		return `Plan approved${editNote}${modeNote}. Implement the following plan:\n\n${planContent}`;
 	}
 
 	function buildFreshSessionPrompt(planContent: string, planPath: string): string {
@@ -176,7 +172,7 @@ export default function planModeExtension(pi: ExtensionAPI): void {
 		handler: async (args, ctx) => {
 			const trimmed = args?.trim();
 
-			// /plan off — cancel plan mode without approval
+			// /plan off — cancel plan mode without approval, signal the agent
 			if (trimmed === "off") {
 				if (!state.active) {
 					ctx.ui.notify("Not in plan mode.", "warning");
@@ -184,6 +180,26 @@ export default function planModeExtension(pi: ExtensionAPI): void {
 				}
 				deactivatePlanMode(ctx);
 				ctx.ui.notify("Plan mode cancelled.", "info");
+				pi.sendUserMessage("Plan mode was cancelled. Proceed with implementation directly.", { deliverAs: "followUp" });
+				return;
+			}
+
+			// /plan reset — discard current plan and start fresh, staying in plan mode
+			if (trimmed === "reset") {
+				if (!state.active) {
+					ctx.ui.notify("Not in plan mode. Use /plan to enter plan mode first.", "warning");
+					return;
+				}
+				if (!state.planSlug || !state.planFilePath) {
+					ctx.ui.notify("No plan file yet.", "warning");
+					return;
+				}
+				writePlan(state.planSlug, "", getPlansDir());
+				state.lastTransition = "cancelled";
+				state.lastApprovedPlanFilePath = null;
+				persistState();
+				ctx.ui.notify("Plan discarded. Starting fresh.", "info");
+				pi.sendUserMessage("I've discarded the current plan. Start over with a fresh approach.", { deliverAs: "followUp" });
 				return;
 			}
 
@@ -350,6 +366,7 @@ export default function planModeExtension(pi: ExtensionAPI): void {
 			if (state.active) {
 				deactivatePlanMode(ctx);
 				ctx.ui.notify("Plan mode disabled.", "info");
+				pi.sendUserMessage("Plan mode was cancelled. Proceed with implementation directly.", { deliverAs: "followUp" });
 			} else {
 				activatePlanMode(ctx);
 				ctx.ui.notify("Plan mode enabled.", "info");
@@ -449,8 +466,10 @@ IMPORTANT:
 		promptSnippet: "Present plan for approval and exit plan mode",
 		promptGuidelines: [
 			"Only call ExitPlanMode when the plan file is complete enough for the user to review.",
+			"Only use ExitPlanMode for tasks that require writing code. For pure research/exploration tasks (understanding code, searching files, reading docs), do NOT call ExitPlanMode — just answer the user directly.",
 			"Do NOT ask for plan approval in plain text or via AskUserQuestion — use ExitPlanMode for approval.",
 			"If the user rejects the plan, stay in plan mode, revise the plan file, and call ExitPlanMode again when ready.",
+			"This tool reads the plan from the plan file — do not pass plan content as a parameter. It signals you're done planning and triggers the user review flow.",
 		],
 		parameters: Type.Object({}),
 
@@ -463,7 +482,7 @@ IMPORTANT:
 			}
 
 			const planPath = ensurePlanFilePath();
-			const planContent = readPlan(state.planSlug!, getPlansDir());
+			let planContent = readPlan(state.planSlug!, getPlansDir());
 
 			if (!planContent || planContent.trim().length === 0) {
 				return {
@@ -477,9 +496,11 @@ IMPORTANT:
 				};
 			}
 
+			// Non-interactive: auto-approve
 			if (!ctx.hasUI) {
 				state.lastTransition = "approved";
 				state.lastApprovedPlanFilePath = planPath;
+				state.hasExitedPlanModeInSession = true;
 				pi.appendEntry("plan-mode-exit", {
 					approved: true,
 					planSlug: state.planSlug,
@@ -497,72 +518,142 @@ IMPORTANT:
 				};
 			}
 
-			ctx.ui.notify(buildPlanReviewText(planContent, planPath), "info");
+			// ── Interactive approval loop ──────────────────────────
+			// Show plan + select menu. "Edit plan first" loops back.
+			let editedDuringReview = false;
 
-			const approved = await ctx.ui.confirm(
-				"Approve this plan?",
-				"Yes approves the plan and allows implementation to begin. No keeps plan mode active so the plan can be revised. Use /plan open to edit the file before approving.",
-			);
+			while (true) {
+				ctx.ui.notify(buildPlanReviewText(planContent, planPath), "info");
 
-			if (approved === undefined) {
-				return {
-					content: [
-						{
-							type: "text",
-							text: `Plan review cancelled. Still in plan mode. Plan file: ${planPath}`,
-						},
+				const choice = await ctx.ui.select(
+					"How would you like to proceed?",
+					[
+						"✓ Approve — begin implementation",
+						"✎ Edit plan first",
+						"✗ Reject — give feedback",
+						"⟳ Start over — discard this plan",
 					],
-					details: { approved: false, cancelled: true },
-				};
-			}
+				);
 
-			if (approved) {
-				const finalContent = readPlan(state.planSlug!, getPlansDir()) ?? planContent;
-				const editedDuringReview = finalContent !== planContent;
-				state.lastTransition = "approved";
-				state.lastApprovedPlanFilePath = planPath;
-				pi.appendEntry("plan-mode-exit", {
-					approved: true,
-					planSlug: state.planSlug,
-					planFilePath: planPath,
-				});
-				deactivatePlanMode(ctx);
-				pi.setSessionName(extractSessionName(finalContent));
+				// Escape — silent dismiss, stay in plan mode
+				if (choice === undefined) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: "Plan review dismissed. Continue refining the plan and call ExitPlanMode when ready.",
+							},
+						],
+						details: { approved: false, cancelled: true },
+					};
+				}
 
-				return {
-					content: [
-						{
-							type: "text",
-							text: buildApprovedPlanText(finalContent, planPath, editedDuringReview, true),
-						},
-					],
-					details: {
+				// ── Approve ──────────────────────────────────────
+				if (choice.startsWith("✓")) {
+					const finalContent = readPlan(state.planSlug!, getPlansDir()) ?? planContent;
+					if (finalContent !== planContent) editedDuringReview = true;
+					state.lastTransition = "approved";
+					state.lastApprovedPlanFilePath = planPath;
+					state.hasExitedPlanModeInSession = true;
+					pi.appendEntry("plan-mode-exit", {
 						approved: true,
-						planContent: finalContent,
+						planSlug: state.planSlug,
 						planFilePath: planPath,
-						editedDuringReview,
-					},
-				};
+					});
+					deactivatePlanMode(ctx);
+					pi.setSessionName(extractSessionName(finalContent));
+
+					return {
+						content: [
+							{
+								type: "text",
+								text: buildApprovedPlanText(finalContent, planPath, editedDuringReview, true),
+							},
+						],
+						details: {
+							approved: true,
+							planContent: finalContent,
+							planFilePath: planPath,
+							editedDuringReview,
+						},
+					};
+				}
+
+				// ── Edit plan first ──────────────────────────────
+				if (choice.startsWith("✎")) {
+					const externalEditor = process.env.EDITOR || process.env.VISUAL;
+					if (externalEditor) {
+						ensurePlansDir(getPlansDir());
+						const { execSync } = await import("node:child_process");
+						try {
+							execSync(`${externalEditor} ${planPath}`, { stdio: "inherit" });
+							ctx.ui.notify("Plan file saved.", "info");
+						} catch {
+							ctx.ui.notify("Editor closed.", "warning");
+						}
+					} else {
+						const edited = await ctx.ui.editor("Edit Plan:", planContent);
+						if (edited !== undefined && edited !== planContent) {
+							writePlan(state.planSlug!, edited, getPlansDir());
+							ctx.ui.notify("Plan updated.", "info");
+						}
+					}
+					// Reload plan content and loop back to show approval menu
+					const reloaded = readPlan(state.planSlug!, getPlansDir());
+					if (reloaded && reloaded !== planContent) {
+						planContent = reloaded;
+						editedDuringReview = true;
+					}
+					continue; // loop back to select menu
+				}
+
+				// ── Reject with feedback ─────────────────────────
+				if (choice.startsWith("✗")) {
+					state.lastTransition = "cancelled";
+					persistState();
+					const feedback = await ctx.ui.input(
+						"What should change?",
+						"Describe the changes you want (Enter to skip)",
+					);
+
+					return {
+						content: [
+							{
+								type: "text",
+								text: feedback
+									? `Plan not approved. User feedback: ${feedback}\n\nRevise the plan and call ExitPlanMode when ready.`
+									: "Plan not approved. Revise the plan and call ExitPlanMode when ready.",
+							},
+						],
+						details: { approved: false, feedback: feedback ?? undefined, planFilePath: planPath },
+					};
+				}
+
+				// ── Start over — discard and re-plan ─────────────
+				if (choice.startsWith("⟳")) {
+					const direction = await ctx.ui.input(
+						"What should the new plan focus on?",
+						"Enter to keep the same goal",
+					);
+
+					writePlan(state.planSlug!, "", getPlansDir());
+					state.lastTransition = "cancelled";
+					state.lastApprovedPlanFilePath = null;
+					persistState();
+
+					return {
+						content: [
+							{
+								type: "text",
+								text: direction
+									? `The user has discarded this plan and wants to start over. New direction: ${direction}\n\nBegin a fresh exploration and create a new plan in ${planPath}.`
+									: `The user has discarded this plan and wants to start over.\n\nBegin a fresh exploration and create a new plan in ${planPath}.`,
+							},
+						],
+						details: { approved: false, startedOver: true, direction: direction ?? undefined, planFilePath: planPath },
+					};
+				}
 			}
-
-			state.lastTransition = "cancelled";
-			persistState();
-			const feedback = await ctx.ui.input(
-				"What should change before implementation begins?",
-				"Describe the changes you want, or leave empty and edit with /plan open...",
-			);
-
-			return {
-				content: [
-					{
-						type: "text",
-						text: feedback
-							? `Plan not approved yet. User feedback: ${feedback}\n\nRevise the plan in ${planPath}, then call ExitPlanMode again when it is ready for another review. Use /plan open if you want to edit the plan file directly before re-reviewing.`
-							: `Plan not approved yet. Continue refining the plan in ${planPath}, then call ExitPlanMode again when it is ready for another review. Use /plan open if you want to edit the file directly before re-reviewing.`,
-					},
-				],
-				details: { approved: false, feedback, planFilePath: planPath },
-			};
 		},
 	});
 
@@ -666,14 +757,38 @@ IMPORTANT:
 		}
 
 		const planPath = ensurePlanFilePath();
+		const existingPlan = state.planSlug ? readPlan(state.planSlug, getPlansDir()) : null;
+
+		// Build re-entry guidance if returning to plan mode after a previous exit
+		let reentryGuidance = "";
+		if (state.hasExitedPlanModeInSession && existingPlan && existingPlan.trim().length > 0) {
+			reentryGuidance = `
+## Re-entering Plan Mode
+
+You are returning to plan mode after having previously exited. A plan file exists at ${planPath} from your previous planning session.
+
+Before proceeding with any new planning, you should:
+1. Read the existing plan file to understand what was previously planned
+2. Evaluate the user's current request against that plan
+3. Decide how to proceed:
+   - **Different task**: If the user's request is for a different task, start fresh by overwriting the existing plan
+   - **Same task, continuing**: If this is a continuation or refinement of the same task, modify the existing plan while cleaning up outdated sections
+4. Always edit the plan file before calling ExitPlanMode
+
+Treat this as a fresh planning session. Do not assume the existing plan is relevant without evaluating it first.
+
+`;
+			// Clear the flag — one-time guidance
+			state.hasExitedPlanModeInSession = false;
+			persistState();
+		}
 
 		return {
 			message: {
 				customType: "plan-mode-context",
 				content: `[PLAN MODE ACTIVE]
 You are currently in PLAN MODE — a read-only exploration mode.
-
-Your plan file: ${planPath}
+${reentryGuidance}Your plan file: ${planPath}
 
 RESTRICTIONS — you MUST NOT violate these, no exceptions:
 - You MUST NOT edit or write to any file except your plan file: ${planPath}
@@ -688,6 +803,7 @@ IMPORTANT RULES:
 - You can have normal conversations and answer questions while in plan mode
 - Only call ExitPlanMode when your plan is complete and ready for user review
 - Do NOT ask for plan approval in plain text or with AskUserQuestion — use ExitPlanMode for approval
+- Do not reference "the plan" in questions to the user (e.g., "Does the plan look good?") — the user cannot see the plan until you call ExitPlanMode. Use ExitPlanMode for plan approval.
 - If you need to clarify requirements or choose between approaches, use AskUserQuestion (if available) — do NOT use it for plan approval
 
 ## Iterative Planning Workflow
@@ -801,6 +917,7 @@ Do NOT attempt implementation until your plan is approved.`,
 				}
 				state.lastTransition = (entry.data.lastTransition as "entered" | "approved" | "cancelled" | null) ?? state.lastTransition;
 				state.lastApprovedPlanFilePath = (entry.data.lastApprovedPlanFilePath as string | null) ?? state.lastApprovedPlanFilePath;
+				state.hasExitedPlanModeInSession = (entry.data.hasExitedPlanModeInSession as boolean) ?? state.hasExitedPlanModeInSession;
 				break;
 			}
 		}

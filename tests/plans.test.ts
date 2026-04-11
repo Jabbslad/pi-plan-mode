@@ -338,7 +338,7 @@ describe("isSafeCommand", () => {
 			"curl https://example.com",
 			"jq '.name' package.json",
 			"sed -n '1,10p' file.txt",
-			"awk '{print $1}' file.txt",
+			// awk '{print $1}' blocked by $ check — false positive, but acceptable tradeoff
 			"rg pattern src/",
 			"fd '*.ts'",
 			"bat file.txt",
@@ -507,6 +507,49 @@ describe("isSafeCommand", () => {
 			assert.equal(isSafeCommand("git branch -d main"), false);
 		});
 	});
+
+	describe("blocks variable expansion", () => {
+		it("blocks bare $VAR", () => {
+			assert.equal(isSafeCommand("cat $HOME/file.txt"), false);
+			assert.equal(isSafeCommand("ls $DIR"), false);
+		});
+
+		it("blocks ${VAR} syntax", () => {
+			assert.equal(isSafeCommand("cat ${HOME}/file.txt"), false);
+			assert.equal(isSafeCommand("echo ${PATH}"), false);
+		});
+
+		it("blocks $() command substitution", () => {
+			assert.equal(isSafeCommand("echo $(whoami)"), false);
+		});
+
+		it("blocks $ anywhere in command", () => {
+			assert.equal(isSafeCommand("git diff $Z--output=/tmp/pwned"), false);
+		});
+
+		it("allows $ inside single quotes when shell will not expand it", () => {
+			assert.equal(isSafeCommand("grep '$foo' file.txt"), true);
+			assert.equal(isSafeCommand("awk '{print $1}' file.txt"), true);
+			assert.equal(isSafeCommand("awk '{print $1,$2}' file.txt"), true);
+		});
+	});
+
+	describe("blocks brace expansion", () => {
+		it("blocks comma-separated brace expansion", () => {
+			assert.equal(isSafeCommand("echo {rm,-rf,/}"), false);
+			assert.equal(isSafeCommand("cat {a,b}.txt"), false);
+		});
+
+		it("blocks range brace expansion", () => {
+			assert.equal(isSafeCommand("echo {1..10}"), false);
+			assert.equal(isSafeCommand("cat file{1..5}.txt"), false);
+		});
+
+		it("allows curly braces without comma or range (not brace expansion)", () => {
+			// git stash@{0} style patterns — no comma or .., so brace check doesn't trigger
+			assert.equal(isSafeCommand("git show stash@{0}"), true); // git show is in safe list, {0} has no comma or ..
+		});
+	});
 });
 
 // ── extractSessionName ───────────────────────────────────────────────
@@ -560,6 +603,7 @@ describe("createInitialState", () => {
 		assert.equal(state.planFilePath, null);
 		assert.equal(state.lastTransition, null);
 		assert.equal(state.lastApprovedPlanFilePath, null);
+		assert.equal(state.hasExitedPlanModeInSession, false);
 	});
 
 	it("creates independent instances", () => {

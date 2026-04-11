@@ -9,6 +9,9 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve, normalize } from "node:path";
 
+// Re-export bash safety functions from the dedicated module
+export { isSafeCommand, extractCommandName } from "./bash-safety.js";
+
 // ── Slug generation ──────────────────────────────────────────────────
 
 const ADJECTIVES = [
@@ -242,158 +245,9 @@ export function planExists(slug: string, plansDir: string = DEFAULT_PLANS_DIR): 
 	return existsSync(getPlanFilePath(slug, plansDir));
 }
 
-// ── Bash command safety ──────────────────────────────────────────────
-
-/**
- * Destructive command names — checked against the FIRST WORD of each pipe segment only.
- * This avoids false positives like `grep rm file.txt` or `cat chmod.md`.
- */
-const DESTRUCTIVE_COMMANDS = new Set([
-	"rm", "rmdir", "mv", "cp", "mkdir", "touch",
-	"chmod", "chown", "chgrp", "ln", "tee",
-	"truncate", "dd", "shred",
-	"sudo", "su",
-	"kill", "pkill", "killall",
-	"reboot", "shutdown",
-	"vi", "vim", "nano", "emacs", "code", "subl",
-]);
-
-/**
- * Destructive multi-word command patterns — checked against the full pipe segment
- * starting from the command name. These need regex because they involve subcommands.
- */
-const DESTRUCTIVE_COMMAND_PATTERNS = [
-	/^\s*npm\s+(install|uninstall|update|ci|link|publish)/i,
-	/^\s*yarn\s+(add|remove|install|publish)/i,
-	/^\s*pnpm\s+(add|remove|install|publish)/i,
-	/^\s*pip\s+(install|uninstall)/i,
-	/^\s*apt(-get)?\s+(install|remove|purge|update|upgrade)/i,
-	/^\s*brew\s+(install|uninstall|upgrade)/i,
-	/^\s*git\s+(add|commit|push|pull|merge|rebase|reset|checkout|branch\s+-[dD]|stash|cherry-pick|revert|tag|init|clone)/i,
-	/^\s*systemctl\s+(start|stop|restart|enable|disable)/i,
-	/^\s*service\s+\S+\s+(start|stop|restart)/i,
-];
-
-/**
- * Redirect patterns checked against the full command string.
- * Uses negative lookbehind/lookahead to avoid matching fd redirects (2>&1, 2>/dev/null).
- */
-const REDIRECT_PATTERNS = [
-	/(?<![\d&])>(?!>|&)/, // stdout redirect > but not >> or >& or 2> or &>
-	/>>/,                  // append redirect >>
-];
-
-/** Safe read-only commands allowed in plan mode */
-const SAFE_PATTERNS = [
-	/^\s*cat\b/,
-	/^\s*head\b/,
-	/^\s*tail\b/,
-	/^\s*less\b/,
-	/^\s*more\b/,
-	/^\s*grep\b/,
-	/^\s*find\b/,
-	/^\s*ls\b/,
-	/^\s*pwd\b/,
-	/^\s*echo\b/,
-	/^\s*printf\b/,
-	/^\s*wc\b/,
-	/^\s*sort\b/,
-	/^\s*uniq\b/,
-	/^\s*diff\b/,
-	/^\s*file\b/,
-	/^\s*stat\b/,
-	/^\s*du\b/,
-	/^\s*df\b/,
-	/^\s*tree\b/,
-	/^\s*which\b/,
-	/^\s*whereis\b/,
-	/^\s*type\b/,
-	/^\s*env\b/,
-	/^\s*printenv\b/,
-	/^\s*uname\b/,
-	/^\s*whoami\b/,
-	/^\s*id\b/,
-	/^\s*date\b/,
-	/^\s*cal\b/,
-	/^\s*uptime\b/,
-	/^\s*ps\b/,
-	/^\s*top\b/,
-	/^\s*htop\b/,
-	/^\s*free\b/,
-	/^\s*git\s+(status|log|diff|show|branch|remote|config\s+--get)/i,
-	/^\s*git\s+ls-/i,
-	/^\s*npm\s+(list|ls|view|info|search|outdated|audit)/i,
-	/^\s*yarn\s+(list|info|why|audit)/i,
-	/^\s*node\s+--version/i,
-	/^\s*python\s+--version/i,
-	/^\s*curl\s/i,
-	/^\s*wget\s+-O\s*-/i,
-	/^\s*jq\b/,
-	/^\s*sed\s+-n/i,
-	/^\s*awk\b/,
-	/^\s*rg\b/,
-	/^\s*fd\b/,
-	/^\s*bat\b/,
-	/^\s*exa\b/,
-];
-
-/** Patterns that indicate command chaining/subshells which could hide destructive commands */
-const CHAINING_PATTERNS = [
-	/;/,           // semicolons: cmd1; cmd2
-	/&&/,          // AND chains: cmd1 && cmd2
-	/\|\|/,        // OR chains: cmd1 || cmd2
-	/\$\(/,        // command substitution: $(cmd)
-	/`[^`]*`/,     // backtick substitution: `cmd`
-];
-
-/**
- * Extract the command name (first word) from a command string.
- * Handles leading whitespace and returns lowercase.
- */
-export function extractCommandName(command: string): string {
-	const trimmed = command.trim();
-	const match = trimmed.match(/^(\S+)/);
-	return match ? match[1].toLowerCase() : "";
-}
-
-/**
- * Check if a pipe segment contains a destructive command.
- * Checks the command name against the blocklist and patterns against full segment.
- */
-function isDestructiveSegment(segment: string): boolean {
-	const cmdName = extractCommandName(segment);
-	if (DESTRUCTIVE_COMMANDS.has(cmdName)) return true;
-	return DESTRUCTIVE_COMMAND_PATTERNS.some((p) => p.test(segment));
-}
-
-/**
- * Check if a bash command is safe for plan mode.
- * Must match a safe pattern, NOT match any destructive pattern,
- * and NOT use command chaining operators that could hide destructive commands.
- */
-export function isSafeCommand(command: string): boolean {
-	// Block command chaining that could hide destructive operations
-	for (const pattern of CHAINING_PATTERNS) {
-		if (pattern.test(command)) return false;
-	}
-
-	// Check for dangerous redirect operators in the full command
-	for (const pattern of REDIRECT_PATTERNS) {
-		if (pattern.test(command)) return false;
-	}
-
-	// Check each part of piped commands
-	const parts = command.split(/\s*\|\s*/);
-	for (const part of parts) {
-		const trimmed = part.trim();
-		if (!trimmed) continue;
-		if (isDestructiveSegment(trimmed)) return false;
-	}
-	// The first command must be a known safe command
-	const firstPart = parts[0]?.trim();
-	if (!firstPart) return false;
-	return SAFE_PATTERNS.some((p) => p.test(firstPart));
-}
+// ── Bash safety is now in lib/bash-safety.ts ─────────────────────
+// isSafeCommand and extractCommandName are re-exported at the top of this file.
+// All bash safety constants and logic have moved to the dedicated module.
 
 // ── Plan state for session persistence ───────────────────────────────
 
@@ -408,6 +262,8 @@ export interface PlanModeState {
 	lastTransition: "entered" | "approved" | "cancelled" | null;
 	/** Path to the most recently approved plan file */
 	lastApprovedPlanFilePath: string | null;
+	/** Whether plan mode has been exited at least once in this session (for re-entry guidance) */
+	hasExitedPlanModeInSession: boolean;
 }
 
 /**
@@ -438,6 +294,7 @@ export function createInitialState(): PlanModeState {
 		planFilePath: null,
 		lastTransition: null,
 		lastApprovedPlanFilePath: null,
+		hasExitedPlanModeInSession: false,
 	};
 }
 
